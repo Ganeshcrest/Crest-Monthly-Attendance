@@ -929,5 +929,19 @@ init();
   <button class="history-month-btn active" data-month="March 2026" onclick="switchMonth('March 2026')">March 2026</button>
 </div>
 
+// PASSWORD PROTECTION
+(function() {
+  const PASS = 'crest@2026';
+  const entered = localStorage.getItem('dash_auth');
+  if (entered !== PASS) {
+    const input = prompt('🔐 Enter Password to access Dashboard:');
+    if (input !== PASS) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0d0f14;color:#ef4444;font-family:monospace;font-size:18px;">❌ ACCESS DENIED — Wrong Password</div>';
+      return;
+    }
+    localStorage.setItem('dash_auth', PASS);
+  }
+})();
+  
 </body>
 </html>

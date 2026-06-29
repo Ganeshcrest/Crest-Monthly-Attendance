@@ -1008,9 +1008,25 @@ async function processUpload() {
     const vendorRecords = vendorFile ? await parseCSV(vendorFile, 'Vendor') : [];
     const all = [...crestRecords, ...vendorRecords];
     const calDays = getCalDays(monthVal);
+
+    // Show detected columns to help debug
+    if (all.length > 0) {
+      const detectedKeys = Object.keys(all[0]).filter(k => k !== 'type');
+      console.log('All CSV columns found:', detectedKeys);
+      status.textContent = '⏳ Columns found: ' + detectedKeys.join(', ') + ' — Processing...';
+    }
+
     const sites = buildSites(all, calDays);
 
-    if (!sites.length) { status.textContent = '⚠ No valid records found in CSV'; return; }
+    if (!sites.length) { status.textContent = '⚠ No valid records found in CSV. Check browser Console (F12) for detected column names.'; return; }
+
+    // Warn if site names are UNKNOWN
+    const unknownSites = sites.filter(s => s.site === 'UNKNOWN SITE');
+    if (unknownSites.length > 0) {
+      const allKeys = all.length ? Object.keys(all[0]).filter(k=>k!=='type') : [];
+      status.textContent = '⚠ Site column not detected. Your CSV columns: [' + allKeys.join(', ') + ']. Please tell Ganesh to update column mapping.';
+      return;
+    }
 
     allMonthsData[monthVal] = sites;
     status.textContent = '⏳ Saving to cloud...';
@@ -1067,34 +1083,92 @@ function csvSplit(line) {
   return result;
 }
 
+// ============================================================
+//  SMART COLUMN DETECTOR
+// ============================================================
+function detectCol(keys, patterns) {
+  for (const p of patterns) {
+    const found = keys.find(k => k.includes(p));
+    if (found) return found;
+  }
+  return null;
+}
+
 function buildSites(records, calDays) {
+  if (!records.length) return [];
+
+  // Auto-detect column names from actual CSV headers
+  const keys = Object.keys(records[0]).map(k => k.toLowerCase().trim());
+  console.log('CSV columns detected:', keys);
+
+  const COL_SITE     = detectCol(keys, ['site name','site_name','sitename','site','property','location','project','building','society','complex','premises']);
+  const COL_NAME     = detectCol(keys, ['employee name','emp name','emp_name','employeename','name','staff name','worker name','worker','staff']);
+  const COL_PRESENT  = detectCol(keys, ['present days','present_days','presentdays','present','days present','attended','working days','worked days','worked']);
+  const COL_CALENDAR = detectCol(keys, ['calendar days','calendar_days','calendardays','calendar','total days','working day','payable days','payable','total']);
+  const COL_DESIG    = detectCol(keys, ['designation','post','role','position','grade','category','dept','department']);
+  const COL_PCT      = detectCol(keys, ['attendance %','att%','attendance%','percentage','percent','pct','att. %','att %','%']);
+
+  console.log('Mapped columns:', { COL_SITE, COL_NAME, COL_PRESENT, COL_CALENDAR, COL_DESIG, COL_PCT });
+
   const siteMap = {};
   records.forEach(r => {
-    const site = r['site name']||r['site']||r['property']||r['location']||'UNKNOWN';
+    // Normalize keys to lowercase for lookup
+    const row = {};
+    Object.keys(r).forEach(k => { row[k.toLowerCase().trim()] = r[k]; });
+
+    const site = (COL_SITE ? row[COL_SITE] : null) || 'UNKNOWN SITE';
+    if (!site.trim() || site.trim() === '') return;
     if (!siteMap[site]) siteMap[site] = [];
-    const present = parseFloat(r['present days']||r['present']||r['days present']||0);
-    const cal = parseFloat(r['calendar days']||r['calendar']||calDays);
-    const pct = cal>0 ? Math.round((present/cal)*1000)/10 : 0;
-    const remark = pct>=90?'Excellent':pct>=70?'Good':pct>=50?'Average':'Poor';
+
+    // Get present days
+    let present = 0;
+    if (COL_PRESENT) present = parseFloat(row[COL_PRESENT]) || 0;
+
+    // Get calendar days
+    let cal = calDays;
+    if (COL_CALENDAR) cal = parseFloat(row[COL_CALENDAR]) || calDays;
+
+    // If CSV already has attendance %, use it directly
+    let pct = 0;
+    if (COL_PCT) {
+      pct = parseFloat(row[COL_PCT]) || 0;
+      if (pct > 1 && pct <= 100) {
+        // already percentage value like 85.5
+      } else if (pct > 0 && pct <= 1) {
+        pct = pct * 100; // decimal like 0.855
+      } else if (COL_PRESENT && cal > 0) {
+        pct = Math.round((present / cal) * 1000) / 10;
+      }
+    } else if (cal > 0) {
+      pct = Math.round((present / cal) * 1000) / 10;
+    }
+
+    const remark = pct >= 90 ? 'Excellent' : pct >= 70 ? 'Good' : pct >= 50 ? 'Average' : 'Poor';
+
     siteMap[site].push({
-      name: r['employee name']||r['name']||r['emp name']||'Unknown',
-      pct, present, calendar: cal,
-      designation: r['designation']||r['post']||'—',
-      type: r.type||'Crest',
+      name: (COL_NAME ? row[COL_NAME] : null) || 'Unknown',
+      pct: Math.round(pct * 10) / 10,
+      present,
+      calendar: cal,
+      designation: (COL_DESIG ? row[COL_DESIG] : null) || '—',
+      type: r.type || 'Crest',
       remark
     });
   });
+
   return Object.entries(siteMap).map(([site, employees]) => {
-    const avgPct = employees.reduce((s,e)=>s+e.pct,0)/employees.length;
-    const poorCount = employees.filter(e=>e.remark==='Poor').length;
-    const below50 = employees.filter(e=>e.pct<50).length;
-    const grade = avgPct>=90?'Excellent':avgPct>=70?'Good':avgPct>=50?'Average':'Poor';
+    const avgPct = employees.reduce((s,e) => s + e.pct, 0) / employees.length;
+    const poorCount = employees.filter(e => e.remark === 'Poor').length;
+    const below50 = employees.filter(e => e.pct < 50).length;
+    const grade = avgPct >= 90 ? 'Excellent' : avgPct >= 70 ? 'Good' : avgPct >= 50 ? 'Average' : 'Poor';
     return {
-      site, employees, total:employees.length,
-      crest_count:employees.filter(e=>e.type==='Crest').length,
-      vendor_count:employees.filter(e=>e.type==='Vendor').length,
-      avg_pct:Math.round(avgPct*10)/10,
-      poor_count:poorCount, below50, grade
+      site, employees,
+      total: employees.length,
+      crest_count: employees.filter(e => e.type === 'Crest').length,
+      vendor_count: employees.filter(e => e.type === 'Vendor').length,
+      avg_pct: Math.round(avgPct * 10) / 10,
+      poor_count: poorCount,
+      below50, grade
     };
   });
 }

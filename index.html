@@ -596,6 +596,18 @@
 // ============================================================
 const PASS = 'Crest@2026';
 
+// ============================================================
+//  APP STATE
+// ============================================================
+let db = null;
+let allMonthsData = {};
+let currentMonthKey = '2026-03';
+let currentFilter = 'all';
+let currentModalData = null;
+let currentTab = 'poor';
+let repeatingSites = new Set();
+
+
 (function() {
   if (sessionStorage.getItem('crest_auth') !== PASS) {
     document.body.style.display = 'none';
@@ -604,6 +616,7 @@ const PASS = 'Crest@2026';
     initApp();
   }
 })();
+
 
 function showLogin() {
   document.body.style.cssText = 'background:#0d0f14;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;';
@@ -651,17 +664,6 @@ const firebaseConfig = {
   appId: "1:907812757957:web:fc9e896111ccfe2ada2bac",
   measurementId: "G-HV7PMMX5BF"
 };
-
-// ============================================================
-//  APP STATE
-// ============================================================
-let db = null;
-let allMonthsData = {};
-let currentMonthKey = '2026-03';
-let currentFilter = 'all';
-let currentModalData = null;
-let currentTab = 'poor';
-let repeatingSites = new Set();
 
 // ============================================================
 //  INIT

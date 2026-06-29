@@ -521,6 +521,11 @@
   </div>
 </div>
 
+<!-- HISTORY BAR -->
+<div class="history-bar" id="historyBar">
+  <span class="history-label">📅 MONTH:</span>
+</div>
+
 <!-- CONTROLS -->
 <div class="controls">
   <input type="text" class="search-box" placeholder="🔍  Search site name..." id="searchBox" oninput="applyFilters()">
@@ -609,6 +614,10 @@ let repeatingSites = new Set();
 
 
 (function() {
+  // Warn if opened as file:// - Firebase needs http/https
+  if (window.location.protocol === 'file:') {
+    console.warn('Running from file:// - Firebase will not work. Host on GitHub Pages or a server.');
+  }
   if (sessionStorage.getItem('crest_auth') !== PASS) {
     document.body.style.display = 'none';
     showLogin();
@@ -661,23 +670,41 @@ const firebaseConfig = {
   projectId: "monthly-attendance-152e0",
   storageBucket: "monthly-attendance-152e0.firebasestorage.app",
   messagingSenderId: "907812757957",
-  appId: "1:907812757957:web:73fc66daaee8d858da2bac",
-  measurementId: "G-7F2V8HVP2K"
+  appId: "1:907812757957:web:fc9e896111ccfe2ada2bac",
+  measurementId: "G-HV7PMMX5BF"
 };
 
 // ============================================================
 //  INIT
 // ============================================================
 function initApp() {
+  const statusEl = document.getElementById('dbStatus');
+  // If opened as local file, Firebase won't work - show clear message
+  if (window.location.protocol === 'file:') {
+    statusEl.textContent = '⚠ Upload to GitHub Pages for Cloud';
+    statusEl.style.color = '#f59e0b';
+    statusEl.style.cursor = 'pointer';
+    statusEl.title = 'Firebase requires http/https. Open via GitHub Pages or a web server.';
+    allMonthsData = { '2026-03': MARCH_DATA };
+    rebuildMonthUI();
+    return;
+  }
   try {
-    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    if (typeof firebase === 'undefined') {
+      throw new Error('Firebase SDK not loaded');
+    }
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
     db = firebase.firestore();
-    document.getElementById('dbStatus').textContent = '● Cloud Connected';
-    document.getElementById('dbStatus').style.color = '#22c55e';
+    // Test connection with a short timeout
+    statusEl.textContent = '○ Connecting...';
+    statusEl.style.color = '#f59e0b';
     loadAllFromFirestore();
   } catch(e) {
-    document.getElementById('dbStatus').textContent = '✕ Local Mode';
-    document.getElementById('dbStatus').style.color = '#ef4444';
+    console.error('Firebase init error:', e.message);
+    statusEl.textContent = '✕ Local Mode: ' + e.message;
+    statusEl.style.color = '#ef4444';
     allMonthsData = { '2026-03': MARCH_DATA };
     rebuildMonthUI();
   }
@@ -687,6 +714,7 @@ function initApp() {
 //  FIRESTORE
 // ============================================================
 async function loadAllFromFirestore() {
+  const statusEl = document.getElementById('dbStatus');
   try {
     const snap = await db.collection('attendance_months').orderBy('monthKey').get();
     allMonthsData = {};
@@ -695,9 +723,18 @@ async function loadAllFromFirestore() {
       allMonthsData[d.monthKey] = d.sites;
     });
     if (!allMonthsData['2026-03']) allMonthsData['2026-03'] = MARCH_DATA;
+    // SUCCESS - update status
+    statusEl.textContent = '● Cloud Connected';
+    statusEl.style.color = '#22c55e';
     rebuildMonthUI();
   } catch(e) {
-    console.warn('Firestore load failed:', e);
+    console.error('Firestore load error:', e.code, e.message);
+    // Show actual error code
+    const errMsg = e.code === 'permission-denied' ? 'Permission Denied — Check Firestore Rules'
+                 : e.code === 'unavailable' ? 'Network Error — Check Internet'
+                 : e.message || 'Unknown Error';
+    statusEl.textContent = '✕ ' + errMsg;
+    statusEl.style.color = '#ef4444';
     allMonthsData = { '2026-03': MARCH_DATA };
     rebuildMonthUI();
   }
@@ -1182,10 +1219,7 @@ const MARCH_DATA = [{"site": "BILLING DEPARTMENT NEW SITE", "total": 1, "crest_c
 
 </script>
 
-<!-- HISTORY BAR (dynamically populated by JS) -->
-<div class="history-bar" id="historyBar">
-  <span class="history-label">📅 MONTH:</span>
-</div>
+
 
 </body>
 </html>
